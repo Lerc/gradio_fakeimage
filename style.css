@@ -1,0 +1,67 @@
+.pseudo_image canvas {
+    margin:auto;
+    background-image: repeating-conic-gradient(#eee 0 25%, transparent 0 50%);
+    background-size: 32px 32px; 
+}
+
+.pseudo_image .widget_panel {
+    background:#ccc8;
+    position: absolute;
+    width:84px;
+    top:10%;
+    bottom:10%;
+    right:16px;
+    line-height:0px;
+    cursor:default;
+}
+
+.pseudo_image .widget_panel, .pseudo_image .div_button {
+    border-top: 2px solid #fff8;
+    border-left: 2px solid #fff8;
+    border-right: 2px solid #0008;
+    border-bottom: 2px solid #0008;
+    box-shadow: 0px 0px 4px 0px;
+}
+
+.pseudo_image .div_button {
+    display : inline-block;
+    width:32px;
+    height:32px;
+    margin:4px;
+    text-align: center;
+    line-height: 26px;
+    font-size: 26px;
+}
+.pseudo_image .div_button.disabled {
+    opacity: 0.2;
+    
+}
+.pseudo_image .widget_panel input[type="radio"] {
+    display:none;
+}
+
+
+.pseudo_image .widget_panel label {
+    display: block;
+    line-height: 32px;
+    background-color: aliceblue;
+    text-align: center;
+}
+
+.pseudo_image .widget_panel input[type="radio"]:checked+label{
+    background-color: blueviolet;
+}
+
+.pseudo_image .div_button.undo {
+    background-image: url("data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8'%3F%3E%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m20 80h30a5 4 0 0 0 0-60h-20l10-15-30 20 30 20-10-15a5 3 0 0 1 20 40h-30z'/%3E%3C/svg%3E ");
+    position: absolute;
+    left:0px;
+    bottom:0px;
+}
+.pseudo_image .div_button.redo {
+    background-image: url("data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8'%3F%3E%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m80 80h-30a5 4 0 0 1 0-60h20l-10-15 30 20-30 20 10-15a5 3 0 0 0-20 40h30z'/%3E%3C/svg%3E%0A");
+
+    position: absolute;
+    right:0px;
+    bottom:0px;
+}
