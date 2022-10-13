@@ -1,7 +1,7 @@
 import os
 from re import L
 from PIL import Image
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from io import BytesIO
 
 import gradio as gr
@@ -26,13 +26,13 @@ literal_png_dataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAA
 
 def pseudo_image():
     
-    image_data = gr.Textbox(literal_png_dataURL, interactive=True,visible=False,label="Image")
-    test_html = gr.HTML('<canvas class="pseudoimage" style="margin:auto; background-image: repeating-conic-gradient(#eee 0 25%, transparent 0 50%);background-size: 32px 32px; "></canvas>')
+    image_data = gr.Textbox(literal_png_dataURL, interactive=True,visible=True,label="Image",elem_id="textarea_voodoo" )
+    test_html = gr.HTML('<canvas class="pseudoimage"></canvas>')
     return image_data
 
 def pseudo_image_and_mask():
-    image_data = gr.Textbox(literal_png_dataURL, interactive=True,visible=False,label="Image")
-    mask_data = gr.Textbox("", interactive=True,visible=False,label="Mask")
+    image_data = gr.Textbox(literal_png_dataURL, interactive=True,visible=True,label="Image", elem_id="textarea_voodoo")
+    mask_data = gr.Textbox(literal_png_dataURL, interactive=True,visible=True,label="Mask", elem_id="textarea_voodoo")
     test_html = gr.HTML('<canvas class="pseudoimage mask" ></canvas>')
     return image_data,mask_data
 
@@ -42,24 +42,41 @@ def image_from_dataURL(data_url):
     image = Image.open(BytesIO(b64decode(base64_only)))
     return image
 
+def image_to_base64_string(img):
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    return b64encode(buffered.getvalue()).decode("utf-8")
+
+def image_to_dataURL(img):
+    return 'data:image/png;base64,' + image_to_base64_string(img)
+
 def test_event(data):
-    image = image_from_dataURL(data);
+    image = image_from_dataURL(data)
     return image
 
+def convert_back(image):
+    print(image)
+    url = image_to_dataURL(image)
+    return url
+
+def reportArgs(data, **kwargs):
+    for key, value in kwargs.items():
+        print("%s == %s" % (key, value))
 
 with gr.Blocks(css=css) as demo:
   with gr.Row():
     with gr.Column():
         image_data=pseudo_image()
-        image_output = gr.Image(label="Image sent to python")
-        image_data.change(fn=test_event, inputs=image_data, outputs=image_output)
+        image_output = gr.Image(label="Image sent to python", type='pil', image_mode="RGBA")
+        image_data.change(fn=test_event,  inputs=image_data, outputs=image_output)
     with gr.Column():
         inpaint_image_data, inpaint_mask_data=pseudo_image_and_mask()
         with gr.Row():    
-            inpaint_image_output = gr.Image(label="Image sent to python")
-            inpaint_mask_output = gr.Image(label="Mask sent to python")
+            inpaint_image_output = gr.Image(label="Image sent to python", type = "pil", image_mode="RGBA")
+            inpaint_mask_output = gr.Image(label="Mask sent to python", type ="pil", image_mode="RGBA")
         inpaint_image_data.change(fn=test_event, inputs=inpaint_image_data, outputs=inpaint_image_output)
         inpaint_mask_data.change(fn=test_event, inputs=inpaint_mask_data, outputs=inpaint_mask_output)
         
+    inpaint_image_output.change(fn=convert_back, inputs=inpaint_image_output, outputs=image_data)
 
 demo.launch()

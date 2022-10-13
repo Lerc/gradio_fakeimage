@@ -10,8 +10,9 @@ addEventListener("load", _=>setTimeout(patchGradioComponents,100));
 const UndoHistoryLength=10;
 
 async function patchGradioComponents() {
-    saySomething();
 
+    saySomething();
+    
     let gApp=gradioApp();
     let fake_canvases=gApp.querySelectorAll(".pseudoimage");
     console.log("fake canvases", fake_canvases);
@@ -19,6 +20,25 @@ async function patchGradioComponents() {
         patchCanvas(c);
     }
 }
+
+function hackTextArea(textArea) {
+    const { get, set } = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    
+    Object.defineProperty(textArea, 'value', {
+            get() {
+            return get.call(this);
+        },
+        set(newVal) {
+            let result = set.call(this, newVal);
+            if (this.alternate_onchange) {
+                this.alternate_onchange(this);
+            }
+            return result;
+
+        }
+    });
+}
+
 
 function loadImage(URL) {
     return new Promise( (resolve,reject) => { 
@@ -33,10 +53,21 @@ async function setCanvasImageURL(canvas,URL,width,height) {
     let img = await loadImage(URL);
     var ctx = canvas.getContext('2d');
     canvas.width=width||img.width;
-    canvas.height=height|img.height
+    canvas.height=height|img.height;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.drawImage(img,0,0);
     canvas.baseImage=img;
 }
+
+function containerToCanvas(canvas,clientX,clientY) {
+    let canvasSpace= canvas.getBoundingClientRect();
+    let scaleX=canvas.width/canvasSpace.width;
+    let scaleY=canvas.height/canvasSpace.height;
+    let x= (clientX-canvasSpace.x) * scaleX;
+    let y= (clientY-canvasSpace.y) * scaleY;
+
+    return {x,y};
+}  
 
 function uid(){
     return Date.now().toString(36) + Math.random().toString(36).substring(0,4);
@@ -70,8 +101,25 @@ async function patchCanvas(canvas) {
     let mainctx = canvas.getContext("2d");
 
     let textAreas = [...container.parentElement.querySelectorAll("textarea")];
+    for ( let t of textAreas) {
+        hackTextArea(t);
+        let gradioParent = t.parentElement.parentElement.parentElement;
+        //hide wrapper element that has a border
+        gradioParent.style = `
+            position:absolute;
+            visibility:hidden;
+            width:0px;
+            height:0px;
+        `;
+    }
+    
     let imageLayers = textAreas.map(makeImageLayer);
     let currentLayer = imageLayers[0];
+
+    let brushRadius = 0;
+    let toolMode = draw;
+    let dragButton = -1;
+    let strokePath=[];
 
 
     let panel=makeWidgetPanel();
@@ -82,9 +130,6 @@ async function patchCanvas(canvas) {
 
     setActiveLayer(0);
 
-    let brushRadius = 0;
-    let dragButton = -1;
-    let strokePath=[];
 
 
     container.addEventListener("mousedown",handleMouseDown);
@@ -92,9 +137,60 @@ async function patchCanvas(canvas) {
     container.addEventListener("mousemove",handleMouseMove);
     container.addEventListener("contextmenu",e=>{e.preventDefault()})
 
+    
+    let dropBoxes = document.createElement("div");
+    dropBoxes.className="drop_area";
+    let boxes = imageLayers.map(i => `<div class="drop_target" name="${i.name}"> Drop here to set ${i.name} </div>`)
+    dropBoxes.innerHTML=boxes.join(" ");
 
+    container.appendChild(dropBoxes);
+    container.addEventListener("dragover", handleDragOver)
+    container.addEventListener("dragleave", handleDragLeave)
+    //container.addEventListener("drop", handleDrop)
+
+    for (let box of dropBoxes.querySelectorAll(".drop_target")) {
+        box.addEventListener("dragover", handleTargetDragOver)
+        box.addEventListener("dragleave", handleTargetDragLeave)
+        box.addEventListener("drop", handleTargetDrop)    
+    }
     setBrushRadius(5);    
 
+
+    function handleDragOver(e) {
+        e.currentTarget.classList.add("drag_hover")
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy'
+    }
+    function handleDragLeave(e) {
+        e.currentTarget.classList.remove("drag_hover")
+    }
+
+    function handleTargetDragOver(e) {
+        e.currentTarget.classList.add("drag_hover")
+        e.dataTransfer.dropEffect = 'copy'
+    }
+
+    function handleTargetDrop(e) {
+        e.preventDefault();
+        let layer = e.currentTarget.getAttribute("name")
+        console.log("dropped on "+layer,e); 
+        let items= e.dataTransfer.items;
+        if (items.length == 1) {
+            if (items[0].kind==="file") {
+                loadLayerFromFile(layer,items[0].getAsFile());
+            }
+        }
+        for (let i of e.dataTransfer.items) {
+            console.log(i);
+        }  
+        e.currentTarget.classList.remove("drag_hover")
+        container.classList.remove("drag_hover")
+    }
+
+    function handleTargetDragLeave(e) {
+        e.currentTarget.classList.remove("drag_hover")
+    }
 
     async function setBaseImage(url,targetLayer=imageLayers[0], takeSize=true) {
         let newImage=document.createElement("canvas");
@@ -126,6 +222,14 @@ async function patchCanvas(canvas) {
         composeImage();
     }
 
+   async function loadLayerFromFile(layerName,file) {
+        let layer = imageLayers.find(a=>a.name==layerName);
+        if (!layer) return;
+        let url = URL.createObjectURL(file)
+        await layer.setFromURL(url)
+        URL.revokeObjectURL(url);
+    }
+
     window.dogdySetActiveLayer=setActiveLayer;
 
     function setActiveLayer(index) {
@@ -139,11 +243,53 @@ async function patchCanvas(canvas) {
         let ctx = layerCanvas.getContext("2d");
         layerCanvas.width=1;
         layerCanvas.height=1;
-
+        const name = textArea.previousElementSibling.textContent;
+        const isMask = name.toLowerCase()=="mask";
         let redoBuffer=[];
         let history=[];
-        let imageChanged=false;
+        
         resetHistory();
+
+        //textArea.addEventListener("scroll",  updateImageFromTextArea )
+        // console.log("adding scroll catch to ", textArea)
+        textArea.alternate_onchange=updateImageFromTextArea;
+
+        async function updateImageFromTextArea(e) {
+            await setFromURL(textArea.value);
+        }
+
+        async function setFromURL(url) {
+            await setCanvasImageURL(layerCanvas,url);
+            if (isMask) convertImageToMask();
+            pushHistory();
+            composeImage();
+        } 
+
+        function convertImageToMask() {
+            let current = ctx.getImageData(0,0,layerCanvas.width,layerCanvas.height);
+            let pixels = new Uint32Array(current.data.buffer);
+
+            let noAlpha = true;
+            for (let i=3;i<current.data.length;i+=4) {
+                if(current.data[i] != 0xff ) {
+                    noAlpha=false;
+                    break;
+                }
+            } 
+            console.log({noAlpha});
+            if (noAlpha) {
+                for (let i=0; i<current.data.length; i+=4) {
+                    let r=current.data[i+0];
+                    let g=current.data[i+1];
+                    let b=current.data[i+2];
+                    let y= Math.round((0.2989 *r)  + (0.5870*g) + (0.1140*b));                     
+                    current.data[i+3] = 255-y;
+                }
+            }            
+            pixels.forEach((p,i)=>pixels[i]=p&0xff000000)            
+            ctx.putImageData(current,0,0);
+        }
+
 
         function resetHistory() {
             redoBuffer=[];
@@ -153,12 +299,13 @@ async function patchCanvas(canvas) {
 
         let getHistory = _=>history;
         let getRedoBuffer = _=>redoBuffer;
-        let touch = _=>imageChanged=true;
+        
 
         function undo() {
             if (history.length==0) return;
             redoBuffer.push(history.pop());
             ctx.putImageData(history.at(-1),0,0);
+            communicateChange();
         }
 
         function redo() {
@@ -166,14 +313,13 @@ async function patchCanvas(canvas) {
 
             history.push(redoBuffer.pop());
             ctx.putImageData(history.at(-1),0,0);
+            communicateChange();
         }
 
         function communicateChange() {
-            if (imageChanged) {
-                textArea.value=layerCanvas.toDataURL();
-                textArea.dispatchEvent(new Event('input'));
-            }
-            imageChanged=false;
+            textArea.value=layerCanvas.toDataURL();
+            let e = new Event('input');
+            textArea.dispatchEvent(e);
         }
     
         function pushHistory() {
@@ -184,26 +330,20 @@ async function patchCanvas(canvas) {
             let newEntry = ctx.getImageData(0,0,canvas.width,canvas.height);
             let current = history.at(-1);
             if(areEqual(newEntry.data,current.data)) return;
-            imageChanged=true;
             history.push(newEntry);
             history=history.slice(-UndoHistoryLength)
             redoBuffer=[];
         }
     
     
-        return Object.freeze({textArea,ctx,canvas:layerCanvas,undo,redo,getHistory,resetHistory,pushHistory,getRedoBuffer,communicateChange,touch});
+        return Object.freeze({
+            textArea,
+            ctx,
+            canvas:layerCanvas,
+            name,
+            undo,redo,getRedoBuffer,setFromURL,
+            getHistory,resetHistory,pushHistory,communicateChange});
    }
-
-   function containerToCanvas(clientX,clientY) {
-        let canvasSpace= canvas.getBoundingClientRect();
-        let scaleX=canvas.width/canvasSpace.width;
-        let scaleY=canvas.height/canvasSpace.height;
-        let x= (clientX-canvasSpace.x) * scaleX;
-        let y= (clientY-canvasSpace.y) * scaleY;
-
-        return {x,y};
-    }  
-
     
     function setBrushRadius(radius=5){
         brushRadius=radius;
@@ -215,13 +355,19 @@ async function patchCanvas(canvas) {
         let ctx=currentLayer.ctx;
         
         ctx.save();
-        ctx.fillStyle = ["black","red","white","orange"][dragButton];
+        let clear = (dragButton==2) || (toolMode==erase)
+        if (clear) {
+            ctx.globalCompositeOperation="destination-out";
+        }
+
+        ctx.strokeStyle = ["black","red","white","orange"][dragButton];
         ctx.beginPath();
         for (let {x,y} of strokePath) {
             ctx.lineTo(x,y);
         }
         ctx.lineWidth=brushRadius*2;
-        ctx.lineCap="round"
+        ctx.lineCap="round";
+        ctx.lineJoin="round";
         ctx.stroke();
         ctx.restore();
     }
@@ -229,6 +375,7 @@ async function patchCanvas(canvas) {
 
     function composeImage() {
         mainctx.save();
+        console.log("compose")
         mainctx.clearRect(0,0,canvas.width,canvas.height);
         for (let layer of imageLayers) {
             mainctx.drawImage(layer.canvas,0,0);            
@@ -239,7 +386,7 @@ async function patchCanvas(canvas) {
         mainctx.restore();
     }
 
-    function endDraw() {
+    function endDraw(e) {
         
         let {ctx}=currentLayer;
         ctx.putImageData(currentLayer.getHistory().at(-1),0,0);
@@ -259,7 +406,7 @@ async function patchCanvas(canvas) {
     function handleMouseDown(e){
         if (dragButton >= 0) return;  //ignore extra downs while drawing
         dragButton= e.button;    
-        strokePath=[containerToCanvas(e.clientX,e.clientY)];
+        strokePath=[containerToCanvas(canvas,e.clientX,e.clientY)];
     }
 
    function handleMouseUp(e){
@@ -276,7 +423,7 @@ async function patchCanvas(canvas) {
             endDraw(); 
             return;
         }
-        strokePath.push(containerToCanvas(e.clientX,e.clientY));
+        strokePath.push(containerToCanvas(canvas,e.clientX,e.clientY));
     
 
         
@@ -290,6 +437,11 @@ async function patchCanvas(canvas) {
         undo.button.classList.toggle("disabled",currentLayer.getHistory().length<=1);
         redo.button.classList.toggle("disabled",currentLayer.getRedoBuffer().length==0);
 
+        for (let button of panel.querySelectorAll('.div_button.tool')){
+            console.log(button.function, "   ",toolMode)
+            button.classList.toggle("selected",button.function==toolMode);
+        }
+
         if (imageLayers.length > 1) { 
             currentLayer.textArea.input.checked=true;
         }
@@ -299,6 +451,7 @@ async function patchCanvas(canvas) {
         currentLayer.undo();
         composeImage();
         updatePanel();
+
     }
 
     function redo() {
@@ -315,20 +468,99 @@ async function patchCanvas(canvas) {
 
     }
     function erase() {
-     
-    }
+        toolMode=erase;
+        updatePanel();
+    }   
     function draw() {
+        toolMode=draw;
+        updatePanel();
+    }
 
+    function dropper() {
+        toolMode=dropper;
+        updatePanel();
     }
 
     function layerChange(e) {
-        
         setActiveLayer(e.currentTarget.valueIndex)
     }
 
+    function brushRadiusControl() {
+        let element = document.createElement("canvas");
+        element.className="brush_size"
+        let ctx = element.getContext("2d");
+        element.width=64;
+        element.height=192;
+        let radius = 15
+        function redraw() {
+            ctx.clearRect(0,0,element.width,element.height);
+            ctx.beginPath();
+            ctx.arc(32,160,32,0,Math.PI);
+            ctx.lineTo(32,0);
+            ctx.fillStyle="#8888";
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(32,radius*5,radius,0,Math.PI*2);
+            ctx.fillStyle="#000";
+            ctx.fill();    
+        }
+
+        Object.defineProperty(element, 'radius', {
+            get() { return radius; },
+            set(value) {
+                if (value<1) value=1;
+                if (value>32) value=32;
+                if (value !== radius) {
+                    radius=value;
+                    element.dispatchEvent(new Event("changed"));
+                }
+                redraw();
+            }
+          });
+
+        let dragging = false;
+        function handleMouseDown(e) {
+            if (e.button !==0 ) return
+            let {x,y} = containerToCanvas(element,e.clientX,e.clientY)
+            e.stopPropagation();
+            element.radius=y/5;
+            dragging=(x>0)  && (x<element.width);
+        }
+        function handleMouseMove(e) {
+            if (!dragging) return;
+            if (e.buttons === 0 )
+            {
+                dragging=false;
+                return
+            }    
+            
+            let {x,y} = containerToCanvas(element,e.clientX,e.clientY)
+            
+            element.radius=y/5;
+            
+        }
+        function handleMouseUp(e) {
+            if (e.button !==0 ) return
+            dragging=false;
+        }
+        
+        element.addEventListener("mousedown", handleMouseDown,{capture:true});
+        element.addEventListener("mousemove", handleMouseMove);
+        element.addEventListener("mouseup", handleMouseUp);
+        
+        
+        redraw();
+        return element
+    }
     function makeWidgetPanel() {
         let panel = document.createElement("div");
         panel.className="widget_panel";
+
+        let brushRadiusWidget = brushRadiusControl();
+        panel.appendChild(brushRadiusWidget);
+        brushRadiusWidget.addEventListener("changed",
+            _=>{setBrushRadius(brushRadiusWidget.radius);});
+        brushRadiusWidget.radius=7;
 
         function makeDivButton(addClass="") {
             let result = document.createElement("div");
@@ -336,11 +568,10 @@ async function patchCanvas(canvas) {
             panel.appendChild(result);
             return result
         }
-          
+        console.log({imageLayers})  
         if (imageLayers.length > 1) {
-            let layerNames = imageLayers.map(({textArea})=>textArea.previousElementSibling.innerText);
+            let layerNames = imageLayers.map(({name})=>name);
             let radioItems = createRadioItems(layerNames,layerChange);
-            
             for (let {input,label}  of radioItems) {
                 panel.appendChild(input);
                 panel.appendChild(label);
@@ -349,9 +580,11 @@ async function patchCanvas(canvas) {
             }
         }
 
-        let actions = [undo,redo,clear,erase,draw];
+        let actions = [undo,redo,clear,dropper,draw,erase];
         for (let f of actions) {
             let button = makeDivButton(f.name);
+            button.classList.add("tool");
+            button.function=f;
             button.addEventListener("mousedown",  
                 e=>{
                     e.stopPropagation();
