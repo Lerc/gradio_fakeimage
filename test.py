@@ -77,6 +77,6 @@ with gr.Blocks(css=css) as demo:
         inpaint_image_data.change(fn=test_event, inputs=inpaint_image_data, outputs=inpaint_image_output)
         inpaint_mask_data.change(fn=test_event, inputs=inpaint_mask_data, outputs=inpaint_mask_output)
         
-    inpaint_image_output.change(fn=convert_back, inputs=inpaint_image_output, outputs=image_data)
+    #inpaint_image_output.change(fn=convert_back, inputs=inpaint_image_output, outputs=image_data)
 
 demo.launch()

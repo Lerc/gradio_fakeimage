@@ -179,12 +179,11 @@ async function patchCanvas(canvas) {
         let items= e.dataTransfer.items;
         if (items.length == 1) {
             if (items[0].kind==="file") {
+                setActiveLayer(layer);
                 loadLayerFromFile(layer,items[0].getAsFile());
+                
             }
         }
-        for (let i of e.dataTransfer.items) {
-            console.log(i);
-        }  
         e.currentTarget.classList.remove("drag_hover")
         container.classList.remove("drag_hover")
     }
@@ -229,16 +228,24 @@ async function patchCanvas(canvas) {
         let url = URL.createObjectURL(file)
         await layer.setFromURL(url)
         URL.revokeObjectURL(url);
+        layer.communicateChange();
     }
 
-    window.dogdySetActiveLayer=setActiveLayer;
+    
 
-    function setActiveLayer(index) {
-        currentLayer=imageLayers[index];
+    function setActiveLayer(layerID) {
+        let layer = currentLayer;
+        if (Number.isInteger(layerID)) {
+            layer=imageLayers[layerID];
+        } else {
+            layer = imageLayers.find(a=>a.name==layerID);
+        }
+        currentLayer=layer;
         composeImage();
         updatePanel();
     }
 
+    
     function makeImageLayer(textArea) {
         let layerCanvas=document.createElement("canvas");
         let ctx = layerCanvas.getContext("2d");
