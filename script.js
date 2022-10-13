@@ -116,6 +116,7 @@ async function patchCanvas(canvas) {
     let imageLayers = textAreas.map(makeImageLayer);
     let currentLayer = imageLayers[0];
 
+    let brushColor = "black";
     let brushRadius = 0;
     let toolMode = draw;
     let dragButton = -1;
@@ -340,7 +341,7 @@ async function patchCanvas(canvas) {
             textArea,
             ctx,
             canvas:layerCanvas,
-            name,
+            name, isMask,
             undo,redo,getRedoBuffer,setFromURL,
             getHistory,resetHistory,pushHistory,communicateChange});
    }
@@ -358,13 +359,16 @@ async function patchCanvas(canvas) {
         let clear = (dragButton==2) || (toolMode==erase)
         if (clear) {
             ctx.globalCompositeOperation="destination-out";
+            ctx.strokeStyle="black";    
+        } else {
+            ctx.strokeStyle = currentLayer.isMask?"black":brushColor;
         }
 
-        ctx.strokeStyle = ["black","red","white","orange"][dragButton];
         ctx.beginPath();
         for (let {x,y} of strokePath) {
             ctx.lineTo(x,y);
         }
+        if  (strokePath.length == 1) ctx.closePath(); // Make it a dot
         ctx.lineWidth=brushRadius*2;
         ctx.lineCap="round";
         ctx.lineJoin="round";
@@ -441,10 +445,15 @@ async function patchCanvas(canvas) {
             console.log(button.function, "   ",toolMode)
             button.classList.toggle("selected",button.function==toolMode);
         }
+        for (let color of panel.querySelectorAll('.swatch_button ')) {
+            color.classList.toggle("selected",brushColor==color.style.backgroundColor);
+        }
 
         if (imageLayers.length > 1) { 
             currentLayer.textArea.input.checked=true;
         }
+
+        panel.classList.toggle("mono",currentLayer.name=="Mask");
     }
 
     function undo() {
@@ -552,6 +561,13 @@ async function patchCanvas(canvas) {
         redraw();
         return element
     }
+
+    function swatchButtonPress(e) {
+        e.stopPropagation();
+        brushColor=e.currentTarget.style.backgroundColor;
+        updatePanel();
+    }
+
     function makeWidgetPanel() {
         let panel = document.createElement("div");
         panel.className="widget_panel";
@@ -560,15 +576,25 @@ async function patchCanvas(canvas) {
         panel.appendChild(brushRadiusWidget);
         brushRadiusWidget.addEventListener("changed",
             _=>{setBrushRadius(brushRadiusWidget.radius);});
-        brushRadiusWidget.radius=7;
+        brushRadiusWidget.radius=7;        
 
-        function makeDivButton(addClass="") {
+        function makeDivButton(addClass="",parent=panel) {
             let result = document.createElement("div");
             result.className="div_button "+addClass;
-            panel.appendChild(result);
+            parent.appendChild(result);
             return result
         }
-        console.log({imageLayers})  
+
+        let swatchPanel = document.createElement("div");
+        swatchPanel.className = "swatch" 
+        panel.appendChild(swatchPanel);
+        let colors =["black","green","red","Orange","Yellow","blue","brown","white"];
+        for (let c of colors) {
+            let button = makeDivButton("swatch_button",swatchPanel);
+            button.style.backgroundColor=c;
+            button.addEventListener("mousedown",  swatchButtonPress);
+        }
+        
         if (imageLayers.length > 1) {
             let layerNames = imageLayers.map(({name})=>name);
             let radioItems = createRadioItems(layerNames,layerChange);

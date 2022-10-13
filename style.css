@@ -102,6 +102,26 @@
     background-color: blueviolet;
 }
 
+.pseudo_image .widget_panel .swatch {
+    position: absolute;
+    left:-35px;
+    width:32px;
+    top:0px;
+    
+    background-color:#f00;
+}
+
+.pseudo_image .widget_panel.mono .swatch {
+    display:none;
+}
+
+.pseudo_image .swatch_button {
+    border: 1px solid white;
+    margin:2px;
+    width:28px;
+    height:28px;
+    box-shadow: 0px 0px 2px 2px black;
+}
 
 .pseudo_image .div_button.draw {
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='50' cy='50' r='30'/%3E%3C/svg%3E ");
