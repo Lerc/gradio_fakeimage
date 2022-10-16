@@ -415,33 +415,24 @@ async function patchCanvas(canvas) {
     
 
     function handleMouseDown(e){
-        if (dragButton >= 0) return;  //ignore extra downs while drawing
-        dragButton= e.button;    
-        strokePath=[containerToCanvas(canvas,e.clientX,e.clientY)];
+        let {x,y} = containerToCanvas(canvas,e.clientX,e.clientY)
+        if (toolMode.mouseDown) {
+            return toolMode.mouseDown(e,x,y)
+        }
     }
 
    function handleMouseUp(e){
-        if (e.button == dragButton) {
-            endDraw();
+        let {x,y} = containerToCanvas(canvas,e.clientX,e.clientY)
+        if (toolMode.mouseUp) {
+            return toolMode.mouseUp(e,x,y)
         }
     }
 
     function handleMouseMove(e) {
-
-        if (dragButton < 0)  return;
-        if (e.buttons==0) {
-            //we lost a mouseup somewhere 
-            endDraw(); 
-            return;
+        let {x,y} = containerToCanvas(canvas,e.clientX,e.clientY)
+        if (toolMode.mouseMove) {
+            return toolMode.mouseMove(e,x,y)
         }
-        strokePath.push(containerToCanvas(canvas,e.clientX,e.clientY));
-    
-
-        
-        currentLayer.ctx.putImageData(currentLayer.getHistory().at(-1),0,0);
-        drawStroke(currentLayer.ctx);
-
-        composeImage();
     }
 
     function updatePanel() {
@@ -491,15 +482,50 @@ async function patchCanvas(canvas) {
         toolMode=draw;
         updatePanel();
     }
-
+    
     function dropper() {
         toolMode=dropper;
         updatePanel();
     }
 
+    function threshold() {
+
+    }
+
+    function transform() {
+
+    }
     function layerChange(e) {
         setActiveLayer(e.currentTarget.valueIndex)
     }
+
+    draw.mouseDown = function(e,x,y) {
+        if (dragButton >= 0) return;  //ignore extra downs while drawing
+        dragButton= e.button;    
+        strokePath=[{x,y}];
+
+    }
+    draw.mouseUp = function(e,x,y) {
+        if (e.button == dragButton) {
+            endDraw();
+        }
+    }
+    draw.mouseMove = function(e,x,y) {
+        if (dragButton < 0)  return;
+        if (e.buttons==0) {
+            //we lost a mouseup somewhere 
+            endDraw(); 
+            return;
+        }
+        strokePath.push(containerToCanvas(canvas,e.clientX,e.clientY));
+        currentLayer.ctx.putImageData(currentLayer.getHistory().at(-1),0,0);
+        drawStroke(currentLayer.ctx);
+
+        composeImage();
+    }
+    erase.mouseDown=draw.mouseDown;
+    erase.mouseUp=draw.mouseUp;
+    erase.mouseMove=draw.mouseMove;
 
     function brushRadiusControl() {
         let element = document.createElement("canvas");
@@ -613,11 +639,12 @@ async function patchCanvas(canvas) {
             }
         }
 
-        let actions = [undo,redo,clear,dropper,draw,erase];
+        let actions = [undo,redo,clear,transform,dropper,threshold,draw,erase];
         for (let f of actions) {
             let button = makeDivButton(f.name);
             button.classList.add("tool");
             button.function=f;
+            button.title=f.name;
             button.addEventListener("mousedown",  
                 e=>{
                     e.stopPropagation();
